@@ -249,6 +249,12 @@ const Interpreter = struct {
             if (iswhitespace(c)) {
                 continue;
             }
+            if (c == ';') {
+                while (!self.isAtEnd() and self.peek() != '\n') {
+                    _ = self.getchar();
+                }
+                continue;
+            }
             switch (c) {
                 '\'' => return self.readQuote(),
                 '(' => return self.readList(),
@@ -383,6 +389,7 @@ test "eval" {
         .{ .input = "'(a b c)", .expected = "(a b c)" },
         .{ .input = "(list 'a 'b 'c)", .expected = "(a b c)" },
         .{ .input = "'(a b . c)", .expected = "(a b . c)" },
+        .{ .input = "; 2\n5 ; 3", .expected = "5" },
     };
     for (testcases) |tc| {
         const r = try run(tc.input);
