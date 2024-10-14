@@ -91,7 +91,7 @@ fn printObject(o: *const Object, allocator: std.mem.Allocator) String {
             }
         },
         .token => {
-            @panic("token should not in ast");
+            sb.append(o.name.?);
         },
     }
     return sb.toString();
@@ -129,36 +129,39 @@ const parenObject = &Object{
     .name = ")",
 };
 
-const Parser = struct {
+const Interpreter = struct {
     input: String,
     index: u32 = 0,
     symbols: *const Object = nilObject,
     allocator: std.mem.Allocator,
 
-    fn peek(self: *Parser) u8 {
+    fn peek(self: *Interpreter) u8 {
         return self.input[self.index];
     }
 
-    fn getchar(self: *Parser) u8 {
+    fn getchar(self: *Interpreter) u8 {
         const c = self.input[self.index];
         self.index += 1;
         return c;
     }
 
-    fn readNumber(self: *Parser, first: Int) *const Object {
+    fn readNumber(self: *Interpreter, first: Int) *const Object {
         var value = first;
         while (!self.isAtEnd() and isdigit(self.peek())) {
             const v = charToInt(self.getchar());
             value = value * 10 + v;
         }
+        return self.makeNumber(value);
+    }
 
+    fn makeNumber(self: *Interpreter, v: Int) *const Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
         obj.type = .int;
-        obj.value = value;
+        obj.value = v;
         return obj;
     }
 
-    fn readSymbol(self: *Parser) *const Object {
+    fn readSymbol(self: *Interpreter) *const Object {
         const start = self.index - 1;
         while (!self.isAtEnd() and isalnum(self.peek())) {
             _ = self.getchar();
@@ -167,14 +170,14 @@ const Parser = struct {
         return self.intern(name);
     }
 
-    fn symbol(self: *Parser, name: String) *const Object {
+    fn symbol(self: *Interpreter, name: String) *const Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
         obj.type = .symbol;
         obj.name = name;
         return obj;
     }
 
-    fn intern(self: *Parser, name: String) *const Object {
+    fn intern(self: *Interpreter, name: String) *const Object {
         var p = self.symbols;
         while (p != nilObject) {
             const cell = p.cell.?;
@@ -192,14 +195,14 @@ const Parser = struct {
         return s;
     }
 
-    fn cons(self: *Parser, car: *const Object, cdr: *const Object) *const Object {
+    fn cons(self: *Interpreter, car: *const Object, cdr: *const Object) *const Object {
         const cell = self.allocator.create(Object) catch @panic("Out of memory");
         cell.type = .cell;
         cell.cell = Cell{ .car = car, .cdr = cdr };
         return cell;
     }
 
-    fn readQuote(self: *Parser) *const Object {
+    fn readQuote(self: *Interpreter) *const Object {
         const sym = self.intern("quote");
         const name = self.read();
         if (name.type == .symbol) {
@@ -211,7 +214,7 @@ const Parser = struct {
         return self.cons(sym, self.cons(name, nilObject));
     }
 
-    fn readList(self: *Parser) *const Object {
+    fn readList(self: *Interpreter) *const Object {
         const obj = self.read();
         // std.debug.print("list: {s}\n", .{printObject(obj, self.allocator) catch ""});
         if (obj == nilObject) {
@@ -236,11 +239,11 @@ const Parser = struct {
         @panic("readList: unreachable");
     }
 
-    fn charToString(self: *Parser, c: u8) String {
+    fn charToString(self: *Interpreter, c: u8) String {
         return std.fmt.allocPrint(self.allocator, "{c}", .{c}) catch "";
     }
 
-    fn read(self: *Parser) *const Object {
+    fn read(self: *Interpreter) *const Object {
         while (!self.isAtEnd()) {
             const c = self.getchar();
             if (iswhitespace(c)) {
@@ -258,6 +261,7 @@ const Parser = struct {
                     }
                 },
                 ')' => return parenObject,
+                '.' => return dotObject,
                 else => {
                     if (isSpecialSymbol(self.charToString(c))) {
                         return self.readSymbol();
@@ -275,38 +279,26 @@ const Parser = struct {
         return nilObject;
     }
 
-    fn isAtEnd(self: *Parser) bool {
+    fn isAtEnd(self: *Interpreter) bool {
         return self.index >= self.input.len;
     }
 
-    pub fn parse(self: *Parser) !*const Object {
+    pub fn parse(self: *Interpreter) !*const Object {
         return self.read();
     }
-};
 
-const Evaluator = struct {
-    allocator: std.mem.Allocator,
-    fn eval(self: *Evaluator, obj: *const Object) String {
-        const allocator = self.allocator;
+    fn eval(self: *Interpreter, obj: *const Object) *const Object {
         // const v = try printObject(obj, allocator);
         // std.debug.print("obj: {s}\n", .{v});
         switch (obj.type) {
-            .int => {
-                const value = obj.value.?;
-                return intToString(allocator, value);
-            },
-            .nil => return "nil",
-            .symbol => {
-                const name = obj.name.?;
-                return name;
-            },
+            .int, .symbol, .nil => return obj,
             .cell => {
                 const cell = obj.cell.?;
-                const carName = self.eval(cell.car);
+                const carName = self.eval(cell.car).name.?;
                 if (stringEqual(carName, "quote")) {
                     // quote only have one cdr, so get it directly
                     const cadr = cell.cdr.cell.?.car;
-                    return printObject(cadr, allocator);
+                    return cadr;
                 } else if (stringEqual(carName, "+")) {
                     const cadr = cell.cdr;
                     return self.evalPlus(cadr);
@@ -325,9 +317,9 @@ const Evaluator = struct {
     }
 
     fn evalPlus(
-        self: *Evaluator,
+        self: *Interpreter,
         obj: *const Object,
-    ) String {
+    ) *const Object {
         var sum: i32 = 0;
         var c = obj;
         while (c != nilObject) {
@@ -338,35 +330,33 @@ const Evaluator = struct {
             sum += car.value.?;
             c = c.cell.?.cdr;
         }
-        return intToString(self.allocator, sum);
+        return self.makeNumber(sum);
     }
 
-    fn evalList(self: *Evaluator, obj: *const Object) String {
+    fn evalList(self: *Interpreter, obj: *const Object) *const Object {
         if (obj == nilObject) {
             return self.eval(obj);
         }
         var c = obj;
 
-        var sb = StringBuilder.init(self.allocator);
-        sb.append("(");
+        const head = self.cons(self.eval(c.cell.?.car), nilObject);
+        var tail = @constCast(head);
+        c = c.cell.?.cdr;
         while (c != nilObject) {
-            const v = self.eval(c.cell.?.car);
-            sb.append(v);
-            sb.append(" ");
+            const o = self.eval(c.cell.?.car);
+            tail.cell.?.cdr = @constCast(self.cons(o, nilObject));
+            tail = @constCast(tail.cell.?.cdr);
             c = c.cell.?.cdr;
         }
-        _ = sb.pop();
-        sb.append(")");
-        return sb.toString();
+        return head;
     }
 };
 
 pub fn run(source: String) !String {
     const allocator = std.heap.page_allocator;
-    var parser = Parser{ .input = source, .allocator = allocator };
-    const parsed = try parser.parse();
-    var e = Evaluator{ .allocator = allocator };
-    return e.eval(parsed);
+    var e = Interpreter{ .input = source, .allocator = allocator };
+    const parsed = try e.parse();
+    return printObject(e.eval(parsed), allocator);
 }
 
 const testing = std.testing;
@@ -391,6 +381,8 @@ test "eval" {
         .{ .input = "(+ 1 2)", .expected = "3" },
         .{ .input = "(+ 1 -3)", .expected = "-2" },
         .{ .input = "'(a b c)", .expected = "(a b c)" },
+        .{ .input = "(list 'a 'b 'c)", .expected = "(a b c)" },
+        .{ .input = "'(a b . c)", .expected = "(a b . c)" },
     };
     for (testcases) |tc| {
         const r = try run(tc.input);
