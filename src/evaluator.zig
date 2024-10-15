@@ -5,7 +5,6 @@ const StringBuilder = SB.StringBuilder;
 const String = SB.String;
 
 const ObjectType = enum(u32) {
-    nil,
     int,
     symbol,
     cell,
@@ -42,7 +41,7 @@ fn stringEqual(s1: String, s2: String) bool {
 }
 
 fn isSpecialSymbol(s: String) bool {
-    return std.mem.indexOf(u8, "+-*/", s) != null;
+    return std.mem.indexOf(u8, "+-*/=", s) != null;
 }
 
 fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
@@ -85,9 +84,6 @@ fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
                 sb.append(")");
             }
         },
-        .nil => {
-            sb.append("()");
-        },
         .symbol => {
             const name = o.name.?;
             if (isDebug) {
@@ -99,7 +95,13 @@ fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
             }
         },
         .token => {
-            sb.append(o.name.?);
+            if (o == trueObject) {
+                return "t";
+            } else if (o == nilObject) {
+                return "()";
+            } else {
+                @panic("Unknown token");
+            }
         },
         else => @panic("Unknown object type"),
     }
@@ -129,6 +131,7 @@ fn charToInt(c: u8) Int {
 var nilObject: *Object = undefined;
 var dotObject: *Object = undefined;
 var parenObject: *Object = undefined;
+var trueObject: *Object = undefined;
 
 const Interpreter = struct {
     input: String,
@@ -153,6 +156,7 @@ const Interpreter = struct {
         };
         interpreter.addPrimitive("quote", &funQuote);
         interpreter.addPrimitive("+", &funPlus);
+        interpreter.addPrimitive("=", &funEq);
         interpreter.addPrimitive("list", &funList);
         interpreter.addPrimitive("define", &funDefine);
         interpreter.addPrimitive("setq", &funSetq);
@@ -186,6 +190,20 @@ const Interpreter = struct {
             c = c.cell.?.cdr;
         }
         return self.makeNumber(sum);
+    }
+
+    fn funEq(self: *Interpreter, args: *Object) *Object {
+        const values = self.evalList(args);
+        const x = values.cell.?.car;
+        const y = values.cell.?.cdr.cell.?.car;
+        if (x.type != .int or y.type != .int) {
+            @panic("funEq: x or y is not int");
+        }
+        if (x.value == y.value) {
+            return trueObject;
+        } else {
+            return nilObject;
+        }
     }
 
     fn funDefine(self: *Interpreter, obj: *Object) *Object {
@@ -421,7 +439,7 @@ const Interpreter = struct {
 
     fn eval(self: *Interpreter, obj: *Object) *Object {
         switch (obj.type) {
-            .int, .nil => return obj,
+            .int, .token => return obj,
             .symbol => {
                 const bind = self.find(obj);
                 if (bind == nilObject) {
@@ -434,9 +452,6 @@ const Interpreter = struct {
                 const fun = self.eval(cell.car);
                 const args = cell.cdr;
                 return self.apply(fun, args);
-            },
-            .token => {
-                @panic("token should not in ast");
             },
             .primitive => {
                 @panic("primitive should not been evaluated");
@@ -498,11 +513,13 @@ pub fn run(source: String) !String {
     const allocator = std.heap.page_allocator;
 
     nilObject = try allocator.create(Object);
-    nilObject.type = .nil;
+    nilObject.type = .token;
     parenObject = try allocator.create(Object);
     parenObject.type = .token;
     dotObject = try allocator.create(Object);
     dotObject.type = .token;
+    trueObject = try allocator.create(Object);
+    trueObject.type = .token;
 
     var e = try Interpreter.init(source, allocator);
     var result: String = "";
@@ -551,6 +568,8 @@ test "eval" {
         .{ .input = "(if 'x 'a 'b)", .expected = "a" },
         .{ .input = "(if () 'a 'b)", .expected = "b" },
         .{ .input = "(if () 'a 'b 'c)", .expected = "c" },
+        .{ .input = "(= 3 3)", .expected = "t" },
+        .{ .input = "(= 3 2)", .expected = "()" },
     };
     for (testcases) |tc| {
         std.debug.print("Input: {s}, ", .{tc.input});
