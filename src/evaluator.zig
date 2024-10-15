@@ -19,7 +19,7 @@ const Cell = struct { car: *Object, cdr: *Object };
 
 const Env = struct {
     vars: *Object,
-    up: ?*Env,
+    outer: ?*Env,
 };
 
 const Frame = struct {
@@ -132,12 +132,12 @@ const Interpreter = struct {
     env: *Env = undefined,
 
     pub fn init(input: String, allocator: std.mem.Allocator) !*Interpreter {
+        const i: *Interpreter = try allocator.create(Interpreter);
         const env = try allocator.create(Env);
         env.* = .{
             .vars = nilObject,
-            .up = null,
+            .outer = null,
         };
-        const i: *Interpreter = try allocator.create(Interpreter);
         i.* = .{
             .input = input,
             .allocator = allocator,
@@ -145,6 +145,7 @@ const Interpreter = struct {
             .index = 0,
             .symbols = nilObject,
         };
+        i.addConstant("t", trueObject);
         i.addPrimitive("quote", &funQuote);
         i.addPrimitive("+", &funPlus);
         i.addPrimitive("=", &funEq);
@@ -164,7 +165,7 @@ const Interpreter = struct {
     fn funSetq(self: *Interpreter, args: *Object) *Object {
         var bind = self.find(args.cell.?.car);
         if (bind == nilObject)
-            @panic("symbol not found");
+            @panic("setq: symbol not found");
         const value = self.eval(args.cell.?.cdr.cell.?.car);
         bind.cell.?.cdr = value;
         return value;
@@ -444,6 +445,11 @@ const Interpreter = struct {
         self.addVariable(sym, prim);
     }
 
+    fn addConstant(self: *Interpreter, name: String, value: *Object) void {
+        const sym = self.intern(name);
+        self.addVariable(sym, value);
+    }
+
     pub fn parse(self: *Interpreter) *Object {
         return self.read();
     }
@@ -452,7 +458,45 @@ const Interpreter = struct {
         if (fun.type == .primitive) {
             return fun.fun.?(self, args);
         }
+        if (fun.type == .function) {
+            const body = fun.frame.?.body;
+            const params = fun.frame.?.params;
+            const eargs = self.evalList(args);
+            self.pushEnv(fun.frame.?.env, params, eargs);
+            const result = self.progn(body);
+            self.popEnv();
+            return result;
+        }
         @panic("Unknown function");
+    }
+
+    fn pushEnv(self: *Interpreter, env: *Env, vars: *Object, values: *Object) void {
+        // TODO: List length of vars and values assertion
+        var map = nilObject;
+
+        var name = vars;
+        var value = values;
+
+        while (name != nilObject) {
+            const sym = vars.cell.?.car;
+            const v = values.cell.?.car;
+            map = self.acons(sym, v, map);
+            name = name.cell.?.cdr;
+            value = value.cell.?.cdr;
+        }
+        self.env = self.makeEnv(map, env);
+    }
+    fn popEnv(self: *Interpreter) void {
+        self.env = self.env.outer.?;
+    }
+
+    fn makeEnv(self: *Interpreter, vars: *Object, outer: ?*Env) *Env {
+        const env = self.allocator.create(Env) catch @panic("Out of memory");
+        env.* = .{
+            .vars = vars,
+            .outer = outer,
+        };
+        return env;
     }
 
     fn eval(self: *Interpreter, obj: *Object) *Object {
@@ -462,7 +506,7 @@ const Interpreter = struct {
             .symbol => {
                 const bind = self.find(obj);
                 if (bind == nilObject) {
-                    @panic("symbol not found");
+                    @panic("eval: symbol not found");
                 }
                 return bind.cell.?.cdr;
             },
@@ -504,11 +548,12 @@ const Interpreter = struct {
         var vars = env.?.vars;
         while (vars != nilObject) {
             const bind = vars.cell.?.car;
-            if (bind.cell.?.car == sym) {
+            if (stringEqual(bind.cell.?.car.name.?, sym.name.?)) {
                 return bind;
             }
             vars = vars.cell.?.cdr;
         }
+        std.debug.print("Variable not found: {s}\n", .{sym.name.?});
         return nilObject;
     }
     fn find(self: *Interpreter, sym: *Object) *Object {
@@ -518,7 +563,7 @@ const Interpreter = struct {
             if (v != nilObject) {
                 return v;
             }
-            env = env.?.up;
+            env = env.?.outer;
         }
         return nilObject;
     }
@@ -590,6 +635,8 @@ test "eval" {
         .{ .input = "(= 3 3)", .expected = "t" },
         .{ .input = "(= 3 2)", .expected = "()" },
         .{ .input = "(lambda (x) x)", .expected = "<function>" },
+        .{ .input = "((lambda () t))", .expected = "t" },
+        .{ .input = "((lambda (x) (+ x x x)) 3)", .expected = "9" },
     };
     for (testcases) |tc| {
         std.debug.print("Input: {s}, ", .{tc.input});

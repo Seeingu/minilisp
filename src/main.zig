@@ -5,7 +5,7 @@ const std = @import("std");
 const evaluator = @import("evaluator.zig");
 
 pub fn main() !void {
-    const r = try evaluator.run("(= 3 3)");
+    const r = try evaluator.run("((lambda (x) (+ x x x)) 3)");
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
