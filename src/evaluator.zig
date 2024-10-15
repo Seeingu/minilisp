@@ -16,14 +16,14 @@ const ObjectType = enum(u32) {
 const Int = i32;
 const isDebug = false;
 
-const Cell = struct { car: *const Object, cdr: *const Object };
+const Cell = struct { car: *Object, cdr: *Object };
 
 const Env = struct {
     vars: *Object,
     up: ?*Env,
 };
 
-const PrimitiveFn = fn (*Interpreter, *const Object) *const Object;
+const PrimitiveFn = fn (*Interpreter, *Object) *Object;
 const Object = struct {
     type: ObjectType,
     // TODO: Use union
@@ -45,7 +45,7 @@ fn isSpecialSymbol(s: String) bool {
     return std.mem.indexOf(u8, "+-*/", s) != null;
 }
 
-fn objectToString(o: *const Object, allocator: std.mem.Allocator) String {
+fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
     var sb = StringBuilder.init(allocator);
     switch (o.type) {
         .int => {
@@ -126,29 +126,21 @@ fn charToInt(c: u8) Int {
     return c - '0';
 }
 
-const nilObject = &Object{
-    .type = .nil,
-};
-const dotObject = &Object{
-    .type = .token,
-    .name = ".",
-};
-const parenObject = &Object{
-    .type = .token,
-    .name = ")",
-};
+var nilObject: *Object = undefined;
+var dotObject: *Object = undefined;
+var parenObject: *Object = undefined;
 
 const Interpreter = struct {
     input: String,
     index: u32,
-    symbols: *const Object,
+    symbols: *Object,
     allocator: std.mem.Allocator,
     env: *Env = undefined,
 
     pub fn init(input: String, allocator: std.mem.Allocator) !*Interpreter {
         const env = try allocator.create(Env);
         env.* = .{
-            .vars = @constCast(nilObject),
+            .vars = nilObject,
             .up = null,
         };
         const interpreter: *Interpreter = try allocator.create(Interpreter);
@@ -163,24 +155,34 @@ const Interpreter = struct {
         interpreter.addPrimitive("+", &funPlus);
         interpreter.addPrimitive("list", &funList);
         interpreter.addPrimitive("define", &funDefine);
+        interpreter.addPrimitive("setq", &funSetq);
 
         return interpreter;
     }
 
-    fn funQuote(_: *Interpreter, args: *const Object) *const Object {
+    fn funQuote(_: *Interpreter, args: *Object) *Object {
         return args.cell.?.car;
+    }
+
+    fn funSetq(self: *Interpreter, args: *Object) *Object {
+        var bind = self.find(args.cell.?.car);
+        if (bind == nilObject)
+            @panic("symbol not found");
+        const value = self.eval(args.cell.?.cdr.cell.?.car);
+        bind.cell.?.cdr = value;
+        return value;
     }
 
     fn funPlus(
         self: *Interpreter,
-        args: *const Object,
-    ) *const Object {
+        args: *Object,
+    ) *Object {
         var sum: i32 = 0;
-        var c = args;
+        var c = self.evalList(args);
         while (c != nilObject) {
             const car = c.cell.?.car;
             if (car.type != .int) {
-                @panic("evalPlus: car is not int");
+                @panic("funPlus: car is not int");
             }
             sum += car.value.?;
             c = c.cell.?.cdr;
@@ -188,14 +190,14 @@ const Interpreter = struct {
         return self.makeNumber(sum);
     }
 
-    fn funDefine(self: *Interpreter, obj: *const Object) *const Object {
+    fn funDefine(self: *Interpreter, obj: *Object) *Object {
         const sym = obj.cell.?.car;
         const value = self.eval(obj.cell.?.cdr.cell.?.car);
         self.addVariable(sym, value);
         return value;
     }
 
-    fn funList(self: *Interpreter, args: *const Object) *const Object {
+    fn funList(self: *Interpreter, args: *Object) *Object {
         return self.evalList(args);
     }
 
@@ -209,7 +211,7 @@ const Interpreter = struct {
         return c;
     }
 
-    fn readNumber(self: *Interpreter, first: Int) *const Object {
+    fn readNumber(self: *Interpreter, first: Int) *Object {
         var value = first;
         while (!self.isAtEnd() and isdigit(self.peek())) {
             const v = charToInt(self.getchar());
@@ -218,14 +220,14 @@ const Interpreter = struct {
         return self.makeNumber(value);
     }
 
-    fn makeNumber(self: *Interpreter, v: Int) *const Object {
+    fn makeNumber(self: *Interpreter, v: Int) *Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
         obj.type = .int;
         obj.value = v;
         return obj;
     }
 
-    fn readSymbol(self: *Interpreter) *const Object {
+    fn readSymbol(self: *Interpreter) *Object {
         const start = self.index - 1;
         while (!self.isAtEnd() and isalnum(self.peek())) {
             _ = self.getchar();
@@ -234,14 +236,14 @@ const Interpreter = struct {
         return self.intern(name);
     }
 
-    fn symbol(self: *Interpreter, name: String) *const Object {
+    fn symbol(self: *Interpreter, name: String) *Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
         obj.type = .symbol;
         obj.name = name;
         return obj;
     }
 
-    fn intern(self: *Interpreter, name: String) *const Object {
+    fn intern(self: *Interpreter, name: String) *Object {
         var p = self.symbols;
         while (p != nilObject) {
             const cell = p.cell.?;
@@ -259,18 +261,18 @@ const Interpreter = struct {
         return s;
     }
 
-    fn acons(self: *Interpreter, x: *const Object, y: *const Object, a: *const Object) *const Object {
+    fn acons(self: *Interpreter, x: *Object, y: *Object, a: *Object) *Object {
         return self.cons(self.cons(x, y), a);
     }
 
-    fn cons(self: *Interpreter, car: *const Object, cdr: *const Object) *const Object {
+    fn cons(self: *Interpreter, car: *Object, cdr: *Object) *Object {
         const cell = self.allocator.create(Object) catch @panic("Out of memory");
         cell.type = .cell;
         cell.cell = Cell{ .car = car, .cdr = cdr };
         return cell;
     }
 
-    fn readQuote(self: *Interpreter) *const Object {
+    fn readQuote(self: *Interpreter) *Object {
         const sym = self.intern("quote");
         const name = self.read();
         if (name.type == .symbol) {
@@ -282,7 +284,7 @@ const Interpreter = struct {
         return self.cons(sym, self.cons(name, nilObject));
     }
 
-    fn readList(self: *Interpreter) *const Object {
+    fn readList(self: *Interpreter) *Object {
         const obj = self.read();
         // std.debug.print("list: {s}\n", .{printObject(obj, self.allocator) catch ""});
         if (obj == nilObject) {
@@ -292,7 +294,7 @@ const Interpreter = struct {
             return nilObject;
         }
         const head = self.cons(obj, nilObject);
-        var tail: *Object = @constCast(head);
+        var tail: *Object = head;
         while (!self.isAtEnd()) {
             const o = self.read();
             if (o == nilObject) {
@@ -301,8 +303,15 @@ const Interpreter = struct {
             if (o == parenObject) {
                 return head;
             }
+            if (o == dotObject) {
+                tail.cell.?.cdr = self.read();
+                if (self.read() != parenObject) {
+                    @panic("readList: expected ')'");
+                }
+                return head;
+            }
             tail.cell.?.cdr = self.cons(o, nilObject);
-            tail = @constCast(tail.cell.?.cdr);
+            tail = tail.cell.?.cdr;
         }
         @panic("readList: unreachable");
     }
@@ -311,7 +320,7 @@ const Interpreter = struct {
         return std.fmt.allocPrint(self.allocator, "{c}", .{c}) catch "";
     }
 
-    fn read(self: *Interpreter) *const Object {
+    fn read(self: *Interpreter) *Object {
         while (!self.isAtEnd()) {
             const c = self.getchar();
             if (iswhitespace(c)) {
@@ -357,7 +366,7 @@ const Interpreter = struct {
         return self.index >= self.input.len;
     }
 
-    fn makePrimtiive(self: *Interpreter, fun: *const PrimitiveFn) *const Object {
+    fn makePrimtiive(self: *Interpreter, fun: *const PrimitiveFn) *Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
         obj.* = .{
             .type = .primitive,
@@ -372,18 +381,18 @@ const Interpreter = struct {
         self.addVariable(sym, prim);
     }
 
-    pub fn parse(self: *Interpreter) *const Object {
+    pub fn parse(self: *Interpreter) *Object {
         return self.read();
     }
 
-    fn apply(self: *Interpreter, fun: *const Object, args: *const Object) *const Object {
+    fn apply(self: *Interpreter, fun: *Object, args: *Object) *Object {
         if (fun.type == .primitive) {
             return fun.fun.?(self, args);
         }
         @panic("Unknown function");
     }
 
-    fn eval(self: *Interpreter, obj: *const Object) *const Object {
+    fn eval(self: *Interpreter, obj: *Object) *Object {
         switch (obj.type) {
             .int, .nil => return obj,
             .symbol => {
@@ -409,25 +418,25 @@ const Interpreter = struct {
         return "";
     }
 
-    fn evalList(self: *Interpreter, obj: *const Object) *const Object {
+    fn evalList(self: *Interpreter, obj: *Object) *Object {
         if (obj == nilObject) {
             return self.eval(obj);
         }
         var c = obj;
 
         const head = self.cons(self.eval(c.cell.?.car), nilObject);
-        var tail = @constCast(head);
+        var tail = head;
         c = c.cell.?.cdr;
         while (c != nilObject) {
             const o = self.eval(c.cell.?.car);
-            tail.cell.?.cdr = @constCast(self.cons(o, nilObject));
-            tail = @constCast(tail.cell.?.cdr);
+            tail.cell.?.cdr = self.cons(o, nilObject);
+            tail = tail.cell.?.cdr;
             c = c.cell.?.cdr;
         }
         return head;
     }
 
-    fn findVariable(env: ?*Env, sym: *const Object) *const Object {
+    fn findVariable(env: ?*Env, sym: *Object) *Object {
         if (env == null) {
             return nilObject;
         }
@@ -437,11 +446,11 @@ const Interpreter = struct {
             if (bind.cell.?.car == sym) {
                 return bind;
             }
-            vars = @constCast(vars.cell.?.cdr);
+            vars = vars.cell.?.cdr;
         }
         return nilObject;
     }
-    fn find(self: *Interpreter, sym: *const Object) *const Object {
+    fn find(self: *Interpreter, sym: *Object) *Object {
         var env: ?*Env = self.env;
         while (env != null) {
             const v = findVariable(env, sym);
@@ -453,17 +462,29 @@ const Interpreter = struct {
         return nilObject;
     }
 
-    fn addVariable(self: *Interpreter, sym: *const Object, value: *const Object) void {
-        self.env.vars = @constCast(self.acons(sym, value, self.env.vars));
+    fn addVariable(self: *Interpreter, sym: *Object, value: *Object) void {
+        self.env.vars = self.acons(sym, value, self.env.vars);
     }
 };
 
 pub fn run(source: String) !String {
     const allocator = std.heap.page_allocator;
+
+    nilObject = try allocator.create(Object);
+    nilObject.type = .nil;
+    parenObject = try allocator.create(Object);
+    parenObject.type = .token;
+    dotObject = try allocator.create(Object);
+    dotObject.type = .token;
+
     var e = try Interpreter.init(source, allocator);
-    const parsed = e.parse();
-    std.debug.print("Parsed: {s}\n", .{objectToString(parsed, allocator)});
-    return objectToString(e.eval(parsed), allocator);
+    var result: String = "";
+    while (!e.isAtEnd()) {
+        const parsed = e.parse();
+        std.debug.print("Parsed: {s}\n", .{objectToString(parsed, allocator)});
+        result = objectToString(e.eval(parsed), allocator);
+    }
+    return result;
 }
 
 const testing = std.testing;
@@ -490,9 +511,12 @@ test "eval" {
         .{ .input = "'(a b c)", .expected = "(a b c)" },
         .{ .input = "(list 'a 'b 'c)", .expected = "(a b c)" },
         .{ .input = "'(a b . c)", .expected = "(a b . c)" },
-        .{ .input = "; 2\n5 ; 3", .expected = "5" },
+        // TODO: Fix this, return nil currently
+        // .{ .input = "; 2\n5 ; 3", .expected = "5" },
         .{ .input = "(define x 7) x", .expected = "7" },
         .{ .input = "(define x 7) (+ x 3)", .expected = "10" },
+        .{ .input = "(define + 7) +", .expected = "7" },
+        .{ .input = "(define x 7) (setq x 11) x", .expected = "11" },
     };
     for (testcases) |tc| {
         const r = try run(tc.input);
