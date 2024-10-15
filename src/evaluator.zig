@@ -45,7 +45,7 @@ fn isSpecialSymbol(s: String) bool {
     return std.mem.indexOf(u8, "+-*/", s) != null;
 }
 
-fn printObject(o: *const Object, allocator: std.mem.Allocator) String {
+fn objectToString(o: *const Object, allocator: std.mem.Allocator) String {
     var sb = StringBuilder.init(allocator);
     switch (o.type) {
         .int => {
@@ -61,22 +61,22 @@ fn printObject(o: *const Object, allocator: std.mem.Allocator) String {
             if (isDebug) {
                 sb.append("cell: {\n");
                 sb.append("  car: ");
-                sb.append(printObject(cell.car, allocator));
+                sb.append(objectToString(cell.car, allocator));
 
                 sb.append("  cdr: ");
-                sb.append(printObject(cell.cdr, allocator));
+                sb.append(objectToString(cell.cdr, allocator));
                 sb.append("\n}");
             } else {
                 sb.append("(");
                 var c = cell;
                 while (true) {
-                    sb.append(printObject(c.car, allocator));
+                    sb.append(objectToString(c.car, allocator));
                     if (c.cdr == nilObject) {
                         break;
                     }
                     if (c.cdr.type != .cell) {
                         sb.append(" . ");
-                        sb.append(printObject(c.cdr, allocator));
+                        sb.append(objectToString(c.cdr, allocator));
                         break;
                     }
                     sb.append(" ");
@@ -162,6 +162,7 @@ const Interpreter = struct {
         interpreter.addPrimitive("quote", &funQuote);
         interpreter.addPrimitive("+", &funPlus);
         interpreter.addPrimitive("list", &funList);
+        interpreter.addPrimitive("define", &funDefine);
 
         return interpreter;
     }
@@ -185,6 +186,13 @@ const Interpreter = struct {
             c = c.cell.?.cdr;
         }
         return self.makeNumber(sum);
+    }
+
+    fn funDefine(self: *Interpreter, obj: *const Object) *const Object {
+        const sym = obj.cell.?.car;
+        const value = self.eval(obj.cell.?.cdr.cell.?.car);
+        self.addVariable(sym, value);
+        return value;
     }
 
     fn funList(self: *Interpreter, args: *const Object) *const Object {
@@ -390,12 +398,6 @@ const Interpreter = struct {
                 const fun = self.eval(cell.car);
                 const args = cell.cdr;
                 return self.apply(fun, args);
-                // } else if (stringEqual(carName, "define")) {
-                //     const cadr = cell.cdr;
-                //     return self.define(cadr);
-                // } else {
-                //     @panic("Unknown cell");
-                // }
             },
             .token => {
                 @panic("token should not in ast");
@@ -423,13 +425,6 @@ const Interpreter = struct {
             c = c.cell.?.cdr;
         }
         return head;
-    }
-
-    fn define(self: *Interpreter, obj: *const Object) *const Object {
-        const sym = obj.cell.?.car;
-        const value = self.eval(obj.cell.?.cdr.cell.?.car);
-        self.addVariable(sym, value);
-        return value;
     }
 
     fn findVariable(env: ?*Env, sym: *const Object) *const Object {
@@ -467,8 +462,8 @@ pub fn run(source: String) !String {
     const allocator = std.heap.page_allocator;
     var e = try Interpreter.init(source, allocator);
     const parsed = e.parse();
-    std.debug.print("Parsed: {s}\n", .{printObject(parsed, allocator)});
-    return printObject(e.eval(parsed), allocator);
+    std.debug.print("Parsed: {s}\n", .{objectToString(parsed, allocator)});
+    return objectToString(e.eval(parsed), allocator);
 }
 
 const testing = std.testing;
@@ -496,7 +491,8 @@ test "eval" {
         .{ .input = "(list 'a 'b 'c)", .expected = "(a b c)" },
         .{ .input = "'(a b . c)", .expected = "(a b . c)" },
         .{ .input = "; 2\n5 ; 3", .expected = "5" },
-        // .{ .input = "(define x 7) x", .expected = "7" },
+        .{ .input = "(define x 7) x", .expected = "7" },
+        .{ .input = "(define x 7) (+ x 3)", .expected = "10" },
     };
     for (testcases) |tc| {
         const r = try run(tc.input);
