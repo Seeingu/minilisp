@@ -86,7 +86,7 @@ fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
             }
         },
         .nil => {
-            sb.append("nil");
+            sb.append("()");
         },
         .symbol => {
             const name = o.name.?;
@@ -156,6 +156,7 @@ const Interpreter = struct {
         interpreter.addPrimitive("list", &funList);
         interpreter.addPrimitive("define", &funDefine);
         interpreter.addPrimitive("setq", &funSetq);
+        interpreter.addPrimitive("if", &funIf);
 
         return interpreter;
     }
@@ -173,10 +174,7 @@ const Interpreter = struct {
         return value;
     }
 
-    fn funPlus(
-        self: *Interpreter,
-        args: *Object,
-    ) *Object {
+    fn funPlus(self: *Interpreter, args: *Object) *Object {
         var sum: i32 = 0;
         var c = self.evalList(args);
         while (c != nilObject) {
@@ -199,6 +197,39 @@ const Interpreter = struct {
 
     fn funList(self: *Interpreter, args: *Object) *Object {
         return self.evalList(args);
+    }
+
+    fn funIf(self: *Interpreter, args: *Object) *Object {
+        const cond = self.eval(args.cell.?.car);
+        if (isTruthy(cond)) {
+            const then = args.cell.?.cdr.cell.?.car;
+            return self.eval(then);
+        }
+        const alternative = args.cell.?.cdr.cell.?.cdr;
+        if (alternative == nilObject) {
+            return nilObject;
+        }
+        return self.progn(alternative);
+    }
+
+    fn isTruthy(obj: *Object) bool {
+        if (obj == nilObject) {
+            return false;
+        }
+        if (obj.type == .int) {
+            return obj.value != 0;
+        }
+        return true;
+    }
+
+    fn progn(self: *Interpreter, list: *Object) *Object {
+        var c = list;
+        var result = nilObject;
+        while (c != nilObject) {
+            result = self.eval(c.cell.?.car);
+            c = c.cell.?.cdr;
+        }
+        return result;
     }
 
     fn peek(self: *Interpreter) u8 {
@@ -286,9 +317,8 @@ const Interpreter = struct {
 
     fn readList(self: *Interpreter) *Object {
         const obj = self.read();
-        // std.debug.print("list: {s}\n", .{printObject(obj, self.allocator) catch ""});
         if (obj == nilObject) {
-            @panic("read list top: unexpected nil");
+            @panic("readList top: unexpected nil");
         }
         if (obj == parenObject) {
             return nilObject;
@@ -297,9 +327,6 @@ const Interpreter = struct {
         var tail: *Object = head;
         while (!self.isAtEnd()) {
             const o = self.read();
-            if (o == nilObject) {
-                @panic("read list unexpected nil");
-            }
             if (o == parenObject) {
                 return head;
             }
@@ -335,6 +362,7 @@ const Interpreter = struct {
             switch (c) {
                 '\'' => return self.readQuote(),
                 '(' => return self.readList(),
+                ')' => return parenObject,
                 '-' => {
                     const cc = self.getchar();
                     if (isdigit(cc)) {
@@ -343,7 +371,6 @@ const Interpreter = struct {
                         @panic("minus");
                     }
                 },
-                ')' => return parenObject,
                 '.' => return dotObject,
                 else => {
                     if (isSpecialSymbol(self.charToString(c))) {
@@ -517,10 +544,18 @@ test "eval" {
         .{ .input = "(define x 7) (+ x 3)", .expected = "10" },
         .{ .input = "(define + 7) +", .expected = "7" },
         .{ .input = "(define x 7) (setq x 11) x", .expected = "11" },
+        .{ .input = "(if 1 'a)", .expected = "a" },
+        .{ .input = "(if () 'a)", .expected = "()" },
+        .{ .input = "(if 1 'a 'b)", .expected = "a" },
+        .{ .input = "(if 0 'a 'b)", .expected = "b" },
+        .{ .input = "(if 'x 'a 'b)", .expected = "a" },
+        .{ .input = "(if () 'a 'b)", .expected = "b" },
+        .{ .input = "(if () 'a 'b 'c)", .expected = "c" },
     };
     for (testcases) |tc| {
+        std.debug.print("Input: {s}, ", .{tc.input});
         const r = try run(tc.input);
-        std.debug.print("Input: {s}, Result: {s}\n", .{ tc.input, r });
+        std.debug.print("Result: {s}\n", .{r});
         try testing.expect(stringEqual(tc.expected, r));
     }
 }
