@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const String = []const u8;
 
+// TODO: use https://github.com/JakubSzark/zig-string
 // Unsafe string builder
 pub const StringBuilder = struct {
     allocator: std.mem.Allocator,
