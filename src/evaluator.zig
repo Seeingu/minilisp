@@ -10,16 +10,22 @@ const ObjectType = enum(u32) {
     cell,
     token,
     primitive,
+    function,
 };
 
 const Int = i32;
-const isDebug = false;
 
 const Cell = struct { car: *Object, cdr: *Object };
 
 const Env = struct {
     vars: *Object,
     up: ?*Env,
+};
+
+const Frame = struct {
+    params: *Object,
+    body: *Object,
+    env: *Env,
 };
 
 const PrimitiveFn = fn (*Interpreter, *Object) *Object;
@@ -31,6 +37,7 @@ const Object = struct {
     name: ?String = undefined,
     symbol: ?String = undefined,
     fun: ?*const PrimitiveFn = undefined,
+    frame: ?Frame = undefined,
 };
 
 fn intToString(allocator: std.mem.Allocator, i: i32) String {
@@ -49,50 +56,34 @@ fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
     switch (o.type) {
         .int => {
             const value = o.value.?;
-            if (isDebug) {
-                sb.append("int: ");
-            }
             sb.append(intToString(allocator, value));
         },
         .cell => {
             const cell = o.cell.?;
 
-            if (isDebug) {
-                sb.append("cell: {\n");
-                sb.append("  car: ");
-                sb.append(objectToString(cell.car, allocator));
-
-                sb.append("  cdr: ");
-                sb.append(objectToString(cell.cdr, allocator));
-                sb.append("\n}");
-            } else {
-                sb.append("(");
-                var c = cell;
-                while (true) {
-                    sb.append(objectToString(c.car, allocator));
-                    if (c.cdr == nilObject) {
-                        break;
-                    }
-                    if (c.cdr.type != .cell) {
-                        sb.append(" . ");
-                        sb.append(objectToString(c.cdr, allocator));
-                        break;
-                    }
-                    sb.append(" ");
-                    c = c.cdr.cell.?;
+            sb.append("(");
+            var c = cell;
+            while (true) {
+                sb.append(objectToString(c.car, allocator));
+                if (c.cdr == nilObject) {
+                    break;
                 }
-                sb.append(")");
+                if (c.cdr.type != .cell) {
+                    sb.append(" . ");
+                    sb.append(objectToString(c.cdr, allocator));
+                    break;
+                }
+                sb.append(" ");
+                c = c.cdr.cell.?;
             }
+            sb.append(")");
         },
         .symbol => {
             const name = o.name.?;
-            if (isDebug) {
-                sb.append("symbol: ");
-                sb.append(name);
-                sb.append("\n");
-            } else {
-                sb.append(name);
-            }
+            sb.append(name);
+        },
+        .function => {
+            sb.append("<function>");
         },
         .token => {
             if (o == trueObject) {
@@ -146,23 +137,24 @@ const Interpreter = struct {
             .vars = nilObject,
             .up = null,
         };
-        const interpreter: *Interpreter = try allocator.create(Interpreter);
-        interpreter.* = .{
+        const i: *Interpreter = try allocator.create(Interpreter);
+        i.* = .{
             .input = input,
             .allocator = allocator,
             .env = env,
             .index = 0,
             .symbols = nilObject,
         };
-        interpreter.addPrimitive("quote", &funQuote);
-        interpreter.addPrimitive("+", &funPlus);
-        interpreter.addPrimitive("=", &funEq);
-        interpreter.addPrimitive("list", &funList);
-        interpreter.addPrimitive("define", &funDefine);
-        interpreter.addPrimitive("setq", &funSetq);
-        interpreter.addPrimitive("if", &funIf);
+        i.addPrimitive("quote", &funQuote);
+        i.addPrimitive("+", &funPlus);
+        i.addPrimitive("=", &funEq);
+        i.addPrimitive("list", &funList);
+        i.addPrimitive("define", &funDefine);
+        i.addPrimitive("setq", &funSetq);
+        i.addPrimitive("if", &funIf);
+        i.addPrimitive("lambda", &funLambda);
 
-        return interpreter;
+        return i;
     }
 
     fn funQuote(_: *Interpreter, args: *Object) *Object {
@@ -230,6 +222,30 @@ const Interpreter = struct {
         return self.progn(alternative);
     }
 
+    fn funLambda(self: *Interpreter, args: *Object) *Object {
+        return self.handleFunction(args, .function);
+    }
+
+    fn handleFunction(self: *Interpreter, list: *Object, objectType: ObjectType) *Object {
+        const car = list.cell.?.car;
+        const cdr = list.cell.?.cdr;
+
+        return self.makeFunction(objectType, car, cdr);
+    }
+
+    fn makeFunction(self: *Interpreter, objectType: ObjectType, params: *Object, body: *Object) *Object {
+        const object = self.allocator.create(Object) catch @panic("Out of memory");
+        object.* = .{
+            .type = objectType,
+            .frame = .{
+                .params = params,
+                .body = body,
+                .env = self.env,
+            },
+        };
+        return object;
+    }
+
     fn isTruthy(obj: *Object) bool {
         if (obj == nilObject) {
             return false;
@@ -271,8 +287,10 @@ const Interpreter = struct {
 
     fn makeNumber(self: *Interpreter, v: Int) *Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
-        obj.type = .int;
-        obj.value = v;
+        obj.* = .{
+            .type = .int,
+            .value = v,
+        };
         return obj;
     }
 
@@ -440,6 +458,7 @@ const Interpreter = struct {
     fn eval(self: *Interpreter, obj: *Object) *Object {
         switch (obj.type) {
             .int, .token => return obj,
+            .function => return obj,
             .symbol => {
                 const bind = self.find(obj);
                 if (bind == nilObject) {
@@ -570,6 +589,7 @@ test "eval" {
         .{ .input = "(if () 'a 'b 'c)", .expected = "c" },
         .{ .input = "(= 3 3)", .expected = "t" },
         .{ .input = "(= 3 2)", .expected = "()" },
+        .{ .input = "(lambda (x) x)", .expected = "<function>" },
     };
     for (testcases) |tc| {
         std.debug.print("Input: {s}, ", .{tc.input});
