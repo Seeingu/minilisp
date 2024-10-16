@@ -154,6 +154,7 @@ const Interpreter = struct {
         i.addPrimitive("setq", &funSetq);
         i.addPrimitive("if", &funIf);
         i.addPrimitive("lambda", &funLambda);
+        i.addPrimitive("defun", &funDefun);
 
         return i;
     }
@@ -225,6 +226,18 @@ const Interpreter = struct {
 
     fn funLambda(self: *Interpreter, args: *Object) *Object {
         return self.handleFunction(args, .function);
+    }
+
+    fn funDefun(self: *Interpreter, args: *Object) *Object {
+        return self.handleDefun(args, .function);
+    }
+
+    fn handleDefun(self: *Interpreter, list: *Object, objectType: ObjectType) *Object {
+        const name = list.cell.?.car;
+        const rest = list.cell.?.cdr;
+        const fun = self.handleFunction(rest, objectType);
+        self.addVariable(name, fun);
+        return fun;
     }
 
     fn handleFunction(self: *Interpreter, list: *Object, objectType: ObjectType) *Object {
@@ -637,6 +650,7 @@ test "eval" {
         .{ .input = "(lambda (x) x)", .expected = "<function>" },
         .{ .input = "((lambda () t))", .expected = "t" },
         .{ .input = "((lambda (x) (+ x x x)) 3)", .expected = "9" },
+        .{ .input = "(defun double (x) (+ x x)) (double 6)", .expected = "12" },
     };
     for (testcases) |tc| {
         std.debug.print("Input: {s}, ", .{tc.input});
