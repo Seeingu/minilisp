@@ -135,8 +135,10 @@ const Interpreter = struct {
     allocator: std.mem.Allocator,
     env: *Env = undefined,
 
-    pub fn init(input: String, allocator: std.mem.Allocator) !*Interpreter {
-        const i: *Interpreter = try allocator.create(Interpreter);
+    const Self = @This();
+
+    pub fn init(input: String, allocator: std.mem.Allocator) !*Self {
+        const i: *Self = try allocator.create(Interpreter);
         const env = try allocator.create(Env);
         env.* = .{
             .vars = nilObject,
@@ -165,11 +167,11 @@ const Interpreter = struct {
         return i;
     }
 
-    fn funQuote(_: *Interpreter, args: *Object) *Object {
+    fn funQuote(_: *Self, args: *Object) *Object {
         return args.cell.?.car;
     }
 
-    fn funSetq(self: *Interpreter, args: *Object) *Object {
+    fn funSetq(self: *Self, args: *Object) *Object {
         var bind = self.find(args.cell.?.car);
         if (bind == nilObject)
             @panic("setq: symbol not found");
@@ -178,7 +180,7 @@ const Interpreter = struct {
         return value;
     }
 
-    fn funPlus(self: *Interpreter, args: *Object) *Object {
+    fn funPlus(self: *Self, args: *Object) *Object {
         var sum: i32 = 0;
         var c = self.evalList(args);
         while (c != nilObject) {
@@ -192,7 +194,7 @@ const Interpreter = struct {
         return self.makeNumber(sum);
     }
 
-    fn funEq(self: *Interpreter, args: *Object) *Object {
+    fn funEq(self: *Self, args: *Object) *Object {
         const values = self.evalList(args);
         const x = values.cell.?.car;
         const y = values.cell.?.cdr.cell.?.car;
@@ -206,18 +208,18 @@ const Interpreter = struct {
         }
     }
 
-    fn funDefine(self: *Interpreter, obj: *Object) *Object {
+    fn funDefine(self: *Self, obj: *Object) *Object {
         const sym = obj.cell.?.car;
         const value = self.eval(obj.cell.?.cdr.cell.?.car);
         self.addVariable(sym, value);
         return value;
     }
 
-    fn funList(self: *Interpreter, args: *Object) *Object {
+    fn funList(self: *Self, args: *Object) *Object {
         return self.evalList(args);
     }
 
-    fn funIf(self: *Interpreter, args: *Object) *Object {
+    fn funIf(self: *Self, args: *Object) *Object {
         const cond = self.eval(args.cell.?.car);
         if (isTruthy(cond)) {
             const then = args.cell.?.cdr.cell.?.car;
@@ -230,24 +232,24 @@ const Interpreter = struct {
         return self.progn(alternative);
     }
 
-    fn funLambda(self: *Interpreter, args: *Object) *Object {
+    fn funLambda(self: *Self, args: *Object) *Object {
         return self.handleFunction(args, .function);
     }
 
-    fn funDefun(self: *Interpreter, args: *Object) *Object {
+    fn funDefun(self: *Self, args: *Object) *Object {
         return self.handleDefun(args, .function);
     }
 
-    fn funDefmacro(self: *Interpreter, args: *Object) *Object {
+    fn funDefmacro(self: *Self, args: *Object) *Object {
         return self.handleDefun(args, .macro);
     }
 
-    fn funMacroexpand(self: *Interpreter, args: *Object) *Object {
+    fn funMacroexpand(self: *Self, args: *Object) *Object {
         const body = args.cell.?.car;
         return self.macroexpand(body);
     }
 
-    fn handleDefun(self: *Interpreter, list: *Object, objectType: ObjectType) *Object {
+    fn handleDefun(self: *Self, list: *Object, objectType: ObjectType) *Object {
         const name = list.cell.?.car;
         const rest = list.cell.?.cdr;
         const fun = self.handleFunction(rest, objectType);
@@ -255,13 +257,13 @@ const Interpreter = struct {
         return fun;
     }
 
-    fn handleFunction(self: *Interpreter, list: *Object, objectType: ObjectType) *Object {
+    fn handleFunction(self: *Self, list: *Object, objectType: ObjectType) *Object {
         const car = list.cell.?.car;
         const cdr = list.cell.?.cdr;
         return self.makeFunction(objectType, car, cdr);
     }
 
-    fn makeFunction(self: *Interpreter, objectType: ObjectType, params: *Object, body: *Object) *Object {
+    fn makeFunction(self: *Self, objectType: ObjectType, params: *Object, body: *Object) *Object {
         const object = self.allocator.create(Object) catch @panic("Out of memory");
         object.* = .{
             .type = objectType,
@@ -284,7 +286,7 @@ const Interpreter = struct {
         return true;
     }
 
-    fn progn(self: *Interpreter, list: *Object) *Object {
+    fn progn(self: *Self, list: *Object) *Object {
         var c = list;
         var result = nilObject;
         while (c != nilObject) {
@@ -294,17 +296,17 @@ const Interpreter = struct {
         return result;
     }
 
-    fn peek(self: *Interpreter) u8 {
+    fn peek(self: *Self) u8 {
         return self.input[self.index];
     }
 
-    fn getchar(self: *Interpreter) u8 {
+    fn getchar(self: *Self) u8 {
         const c = self.input[self.index];
         self.index += 1;
         return c;
     }
 
-    fn readNumber(self: *Interpreter, first: Int) *Object {
+    fn readNumber(self: *Self, first: Int) *Object {
         var value = first;
         while (!self.isAtEnd() and isdigit(self.peek())) {
             const v = charToInt(self.getchar());
@@ -313,7 +315,7 @@ const Interpreter = struct {
         return self.makeNumber(value);
     }
 
-    fn makeNumber(self: *Interpreter, v: Int) *Object {
+    fn makeNumber(self: *Self, v: Int) *Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
         obj.* = .{
             .type = .int,
@@ -322,7 +324,7 @@ const Interpreter = struct {
         return obj;
     }
 
-    fn readSymbol(self: *Interpreter) *Object {
+    fn readSymbol(self: *Self) *Object {
         const start = self.index - 1;
         while (!self.isAtEnd() and (isalnum(self.peek()) or self.peek() == '-')) {
             _ = self.getchar();
@@ -331,14 +333,14 @@ const Interpreter = struct {
         return self.intern(name);
     }
 
-    fn symbol(self: *Interpreter, name: String) *Object {
+    fn symbol(self: *Self, name: String) *Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
         obj.type = .symbol;
         obj.name = name;
         return obj;
     }
 
-    fn intern(self: *Interpreter, name: String) *Object {
+    fn intern(self: *Self, name: String) *Object {
         var p = self.symbols;
         while (p != nilObject) {
             const cell = p.cell.?;
@@ -354,18 +356,18 @@ const Interpreter = struct {
         return s;
     }
 
-    fn acons(self: *Interpreter, x: *Object, y: *Object, a: *Object) *Object {
+    fn acons(self: *Self, x: *Object, y: *Object, a: *Object) *Object {
         return self.cons(self.cons(x, y), a);
     }
 
-    fn cons(self: *Interpreter, car: *Object, cdr: *Object) *Object {
+    fn cons(self: *Self, car: *Object, cdr: *Object) *Object {
         const cell = self.allocator.create(Object) catch @panic("Out of memory");
         cell.type = .cell;
         cell.cell = Cell{ .car = car, .cdr = cdr };
         return cell;
     }
 
-    fn readQuote(self: *Interpreter) *Object {
+    fn readQuote(self: *Self) *Object {
         const sym = self.intern("quote");
         const name = self.read();
         if (name.type == .symbol) {
@@ -377,7 +379,7 @@ const Interpreter = struct {
         return self.cons(sym, self.cons(name, nilObject));
     }
 
-    fn readList(self: *Interpreter) *Object {
+    fn readList(self: *Self) *Object {
         const obj = self.read();
         if (obj == nilObject) {
             @panic("readList top: unexpected nil");
@@ -405,11 +407,11 @@ const Interpreter = struct {
         @panic("readList: unreachable");
     }
 
-    fn charToString(self: *Interpreter, c: u8) String {
+    fn charToString(self: *Self, c: u8) String {
         return std.fmt.allocPrint(self.allocator, "{c}", .{c}) catch "";
     }
 
-    fn read(self: *Interpreter) *Object {
+    fn read(self: *Self) *Object {
         while (!self.isAtEnd()) {
             const c = self.getchar();
             if (iswhitespace(c)) {
@@ -451,11 +453,11 @@ const Interpreter = struct {
         return nilObject;
     }
 
-    fn isAtEnd(self: *Interpreter) bool {
+    fn isAtEnd(self: *Self) bool {
         return self.index >= self.input.len;
     }
 
-    fn makePrimtiive(self: *Interpreter, fun: *const PrimitiveFn) *Object {
+    fn makePrimtiive(self: *Self, fun: *const PrimitiveFn) *Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
         obj.* = .{
             .type = .primitive,
@@ -464,22 +466,22 @@ const Interpreter = struct {
         return obj;
     }
 
-    fn addPrimitive(self: *Interpreter, name: String, fun: *const PrimitiveFn) void {
+    fn addPrimitive(self: *Self, name: String, fun: *const PrimitiveFn) void {
         const sym = self.intern(name);
         const prim = self.makePrimtiive(fun);
         self.addVariable(sym, prim);
     }
 
-    fn addConstant(self: *Interpreter, name: String, value: *Object) void {
+    fn addConstant(self: *Self, name: String, value: *Object) void {
         const sym = self.intern(name);
         self.addVariable(sym, value);
     }
 
-    pub fn parse(self: *Interpreter) *Object {
+    pub fn parse(self: *Self) *Object {
         return self.read();
     }
 
-    fn apply(self: *Interpreter, fun: *Object, args: *Object) *Object {
+    fn apply(self: *Self, fun: *Object, args: *Object) *Object {
         if (fun.type == .primitive) {
             return fun.fun.?(self, args);
         }
@@ -495,7 +497,7 @@ const Interpreter = struct {
         @panic("Unknown function");
     }
 
-    fn pushEnv(self: *Interpreter, env: *Env, vars: *Object, values: *Object) void {
+    fn pushEnv(self: *Self, env: *Env, vars: *Object, values: *Object) void {
         // TODO: List length of vars and values assertion
         var map = nilObject;
 
@@ -514,11 +516,11 @@ const Interpreter = struct {
         }
         self.env = self.makeEnv(map, env);
     }
-    fn popEnv(self: *Interpreter) void {
+    fn popEnv(self: *Self) void {
         self.env = self.env.outer.?;
     }
 
-    fn makeEnv(self: *Interpreter, vars: *Object, outer: *Env) *Env {
+    fn makeEnv(self: *Self, vars: *Object, outer: *Env) *Env {
         const env = self.allocator.create(Env) catch @panic("Out of memory");
         env.* = .{
             .vars = vars,
@@ -527,7 +529,7 @@ const Interpreter = struct {
         return env;
     }
 
-    fn macroexpand(self: *Interpreter, obj: *Object) *Object {
+    fn macroexpand(self: *Self, obj: *Object) *Object {
         if (obj.type != .cell) {
             return obj;
         }
@@ -551,7 +553,7 @@ const Interpreter = struct {
         return result;
     }
 
-    fn eval(self: *Interpreter, obj: *Object) *Object {
+    fn eval(self: *Self, obj: *Object) *Object {
         switch (obj.type) {
             .int, .token => return obj,
             .function, .macro => return obj,
@@ -579,7 +581,7 @@ const Interpreter = struct {
         return "";
     }
 
-    fn evalList(self: *Interpreter, obj: *Object) *Object {
+    fn evalList(self: *Self, obj: *Object) *Object {
         var c = obj;
 
         var head: ?*Object = null;
@@ -616,7 +618,7 @@ const Interpreter = struct {
         return nilObject;
     }
 
-    fn find(self: *Interpreter, sym: *Object) *Object {
+    fn find(self: *Self, sym: *Object) *Object {
         var env: ?*Env = self.env;
         while (env != null) {
             const v = findVariable(env, sym);
@@ -629,7 +631,7 @@ const Interpreter = struct {
         return nilObject;
     }
 
-    fn debugPrintEnv(self: *Interpreter, globalEnv: *Env) void {
+    fn debugPrintEnv(self: *Self, globalEnv: *Env) void {
         var sb = StringBuilder.init(self.allocator);
         var env: ?*Env = globalEnv;
         var index: i32 = 0;
@@ -650,7 +652,7 @@ const Interpreter = struct {
         std.debug.print("{s}\n", .{sb.toString()});
     }
 
-    fn addVariable(self: *Interpreter, sym: *Object, value: *Object) void {
+    fn addVariable(self: *Self, sym: *Object, value: *Object) void {
         self.env.vars = self.acons(sym, value, self.env.vars);
     }
 };
