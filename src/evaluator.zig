@@ -349,9 +349,7 @@ const Interpreter = struct {
             p = p.cell.?.cdr;
         }
         const s = self.symbol(name);
-        // std.debug.print("new symbol: {s}\n", .{printObject(s, self.allocator) catch ""});
         self.symbols = self.cons(s, self.symbols);
-        // std.debug.print("symbols: {s}\n", .{printObject(self.symbols, self.allocator) catch ""});
 
         return s;
     }
@@ -511,15 +509,16 @@ const Interpreter = struct {
             name = name.cell.?.cdr;
             value = value.cell.?.cdr;
         }
+        if (env != self.env) {
+            env.outer = self.env;
+        }
         self.env = self.makeEnv(map, env);
     }
     fn popEnv(self: *Interpreter) void {
-        if (self.env.outer) |outer| {
-            self.env = outer;
-        }
+        self.env = self.env.outer.?;
     }
 
-    fn makeEnv(self: *Interpreter, vars: *Object, outer: ?*Env) *Env {
+    fn makeEnv(self: *Interpreter, vars: *Object, outer: *Env) *Env {
         const env = self.allocator.create(Env) catch @panic("Out of memory");
         env.* = .{
             .vars = vars,
@@ -581,21 +580,25 @@ const Interpreter = struct {
     }
 
     fn evalList(self: *Interpreter, obj: *Object) *Object {
-        if (obj == nilObject) {
-            return self.eval(obj);
-        }
         var c = obj;
 
-        const head = self.cons(self.eval(c.cell.?.car), nilObject);
-        var tail = head;
-        c = c.cell.?.cdr;
+        var head: ?*Object = null;
+        var tail: *Object = undefined;
         while (c != nilObject) {
             const o = self.eval(c.cell.?.car);
-            tail.cell.?.cdr = self.cons(o, nilObject);
-            tail = tail.cell.?.cdr;
+            if (head == null) {
+                head = self.cons(o, nilObject);
+                tail = head.?;
+            } else {
+                tail.cell.?.cdr = self.cons(o, nilObject);
+                tail = tail.cell.?.cdr;
+            }
             c = c.cell.?.cdr;
         }
-        return head;
+        if (head == null) {
+            return nilObject;
+        }
+        return head.?;
     }
 
     fn findVariable(env: ?*Env, sym: *Object) *Object {
@@ -626,11 +629,13 @@ const Interpreter = struct {
         return nilObject;
     }
 
-    fn debugPrintEnv(self: *Interpreter) void {
+    fn debugPrintEnv(self: *Interpreter, globalEnv: *Env) void {
         var sb = StringBuilder.init(self.allocator);
-        sb.append("Env: \n");
-        var env: ?*Env = self.env;
+        var env: ?*Env = globalEnv;
+        var index: i32 = 0;
         while (env != null) {
+            sb.append("Env: ");
+            sb.append(intToString(self.allocator, index));
             var vars = env.?.vars;
             while (vars != nilObject) {
                 const bind = vars.cell.?.car;
@@ -640,6 +645,7 @@ const Interpreter = struct {
                 vars = vars.cell.?.cdr;
             }
             env = env.?.outer;
+            index += 1;
         }
         std.debug.print("{s}\n", .{sb.toString()});
     }
@@ -739,6 +745,8 @@ test "eval" {
             .input = "(defmacro if-zero (x then) (list 'if (list '= x 0) then)) (macroexpand (if-zero x (print x)))",
             .expected = "(if (= x 0) (print x))",
         },
+        // TODO: Fix env issue
+        // .{ .input = "(defun f (x) (if (= x 0) 0 (+ (f (+ x -1)) x))) (f 10)", .expected = "55" },
     };
     for (testcases) |tc| {
         std.debug.print("Input: {s}, ", .{tc.input});

@@ -5,7 +5,7 @@ const std = @import("std");
 const evaluator = @import("evaluator.zig");
 
 pub fn main() !void {
-    const r = try evaluator.run("(defmacro if-zero (x then) (list 'if (list '= x 0) then)) (if-zero 0 42)");
+    const r = try evaluator.run("(defun f (x) (if (= x 0) 0 (+ (f (+ x -1)) x))) (f 10)");
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
