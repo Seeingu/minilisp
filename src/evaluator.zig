@@ -11,6 +11,7 @@ const ObjectType = enum(u32) {
     token,
     primitive,
     function,
+    macro,
 };
 
 const Int = i32;
@@ -85,6 +86,9 @@ fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
         .function => {
             sb.append("<function>");
         },
+        .macro => {
+            sb.append("<macro>");
+        },
         .token => {
             if (o == trueObject) {
                 return "t";
@@ -155,6 +159,7 @@ const Interpreter = struct {
         i.addPrimitive("if", &funIf);
         i.addPrimitive("lambda", &funLambda);
         i.addPrimitive("defun", &funDefun);
+        i.addPrimitive("defmacro", &funDefmacro);
 
         return i;
     }
@@ -230,6 +235,10 @@ const Interpreter = struct {
 
     fn funDefun(self: *Interpreter, args: *Object) *Object {
         return self.handleDefun(args, .function);
+    }
+
+    fn funDefmacro(self: *Interpreter, args: *Object) *Object {
+        return self.handleDefun(args, .macro);
     }
 
     fn handleDefun(self: *Interpreter, list: *Object, objectType: ObjectType) *Object {
@@ -309,7 +318,7 @@ const Interpreter = struct {
 
     fn readSymbol(self: *Interpreter) *Object {
         const start = self.index - 1;
-        while (!self.isAtEnd() and isalnum(self.peek())) {
+        while (!self.isAtEnd() and (isalnum(self.peek()) or self.peek() == '-')) {
             _ = self.getchar();
         }
         const name = self.input[start..self.index];
@@ -490,8 +499,8 @@ const Interpreter = struct {
         var value = values;
 
         while (name != nilObject) {
-            const sym = vars.cell.?.car;
-            const v = values.cell.?.car;
+            const sym = name.cell.?.car;
+            const v = value.cell.?.car;
             map = self.acons(sym, v, map);
             name = name.cell.?.cdr;
             value = value.cell.?.cdr;
@@ -513,10 +522,34 @@ const Interpreter = struct {
         return env;
     }
 
+    fn macroexpand(self: *Interpreter, obj: *Object) *Object {
+        if (obj.type != .cell) {
+            return obj;
+        }
+        const car = obj.cell.?.car;
+        if (car.type != .symbol) {
+            return obj;
+        }
+        const bind = self.find(car);
+        if (bind == nilObject) {
+            return obj;
+        }
+        if (bind.cell.?.cdr.type != .macro) {
+            return obj;
+        }
+        const args = obj.cell.?.cdr;
+        const body = bind.cell.?.cdr.frame.?.body;
+        const params = bind.cell.?.cdr.frame.?.params;
+        self.pushEnv(self.env, params, args);
+        const result = self.progn(body);
+        self.popEnv();
+        return result;
+    }
+
     fn eval(self: *Interpreter, obj: *Object) *Object {
         switch (obj.type) {
             .int, .token => return obj,
-            .function => return obj,
+            .function, .macro => return obj,
             .symbol => {
                 const bind = self.find(obj);
                 if (bind == nilObject) {
@@ -525,6 +558,10 @@ const Interpreter = struct {
                 return bind.cell.?.cdr;
             },
             .cell => {
+                const expanded = self.macroexpand(obj);
+                if (expanded != obj) {
+                    return self.eval(expanded);
+                }
                 const cell = obj.cell.?;
                 const fun = self.eval(cell.car);
                 const args = cell.cdr;
@@ -569,6 +606,7 @@ const Interpreter = struct {
         }
         return nilObject;
     }
+
     fn find(self: *Interpreter, sym: *Object) *Object {
         var env: ?*Env = self.env;
         while (env != null) {
@@ -580,6 +618,24 @@ const Interpreter = struct {
         }
         std.debug.print("Variable not found: {s}\n", .{sym.name.?});
         return nilObject;
+    }
+
+    fn debugPrintEnv(self: *Interpreter) void {
+        var sb = StringBuilder.init(self.allocator);
+        sb.append("Env: \n");
+        var env: ?*Env = self.env;
+        while (env != null) {
+            var vars = env.?.vars;
+            while (vars != nilObject) {
+                const bind = vars.cell.?.car;
+                sb.append("\t");
+                sb.append(bind.cell.?.car.name.?);
+                sb.append("\n");
+                vars = vars.cell.?.cdr;
+            }
+            env = env.?.outer;
+        }
+        std.debug.print("{s}\n", .{sb.toString()});
     }
 
     fn addVariable(self: *Interpreter, sym: *Object, value: *Object) void {
@@ -667,6 +723,10 @@ test "eval" {
             \\(counter)
             ,
             .expected = "3",
+        },
+        .{
+            .input = "(defmacro if-zero (x then) (list 'if (list '= x 0) then)) (if-zero 0 42)",
+            .expected = "42",
         },
     };
     for (testcases) |tc| {
