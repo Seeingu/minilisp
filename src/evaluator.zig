@@ -351,7 +351,12 @@ const Interpreter = struct {
 
     fn cons(self: *Self, car: *Object, cdr: *Object) *Object {
         const obj = self.allocator.create(Object) catch @panic("Out of memory");
-        obj.cell = Cell{ .car = car, .cdr = cdr };
+        obj.* = .{
+            .cell = Cell{
+                .car = car,
+                .cdr = cdr,
+            },
+        };
         return obj;
     }
 
