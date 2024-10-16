@@ -243,7 +243,6 @@ const Interpreter = struct {
     fn handleFunction(self: *Interpreter, list: *Object, objectType: ObjectType) *Object {
         const car = list.cell.?.car;
         const cdr = list.cell.?.cdr;
-
         return self.makeFunction(objectType, car, cdr);
     }
 
@@ -500,7 +499,9 @@ const Interpreter = struct {
         self.env = self.makeEnv(map, env);
     }
     fn popEnv(self: *Interpreter) void {
-        self.env = self.env.outer.?;
+        if (self.env.outer) |outer| {
+            self.env = outer;
+        }
     }
 
     fn makeEnv(self: *Interpreter, vars: *Object, outer: ?*Env) *Env {
@@ -566,7 +567,6 @@ const Interpreter = struct {
             }
             vars = vars.cell.?.cdr;
         }
-        std.debug.print("Variable not found: {s}\n", .{sym.name.?});
         return nilObject;
     }
     fn find(self: *Interpreter, sym: *Object) *Object {
@@ -578,6 +578,7 @@ const Interpreter = struct {
             }
             env = env.?.outer;
         }
+        std.debug.print("Variable not found: {s}\n", .{sym.name.?});
         return nilObject;
     }
 
@@ -651,6 +652,22 @@ test "eval" {
         .{ .input = "((lambda () t))", .expected = "t" },
         .{ .input = "((lambda (x) (+ x x x)) 3)", .expected = "9" },
         .{ .input = "(defun double (x) (+ x x)) (double 6)", .expected = "12" },
+        .{
+            .input = "(defun call (f) ((lambda (var) (f)) 5)) ((lambda (var) (call (lambda () var))) 3)",
+            .expected = "3",
+        },
+        .{
+            .input =
+            \\(define counter
+            \\((lambda (val)
+            \\(lambda () (setq val (+ val 1)) val))
+            \\0))
+            \\(counter)
+            \\(counter)
+            \\(counter)
+            ,
+            .expected = "3",
+        },
     };
     for (testcases) |tc| {
         std.debug.print("Input: {s}, ", .{tc.input});
