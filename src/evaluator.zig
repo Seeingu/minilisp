@@ -160,6 +160,7 @@ const Interpreter = struct {
         i.addPrimitive("lambda", &funLambda);
         i.addPrimitive("defun", &funDefun);
         i.addPrimitive("defmacro", &funDefmacro);
+        i.addPrimitive("macroexpand", &funMacroexpand);
 
         return i;
     }
@@ -239,6 +240,11 @@ const Interpreter = struct {
 
     fn funDefmacro(self: *Interpreter, args: *Object) *Object {
         return self.handleDefun(args, .macro);
+    }
+
+    fn funMacroexpand(self: *Interpreter, args: *Object) *Object {
+        const body = args.cell.?.car;
+        return self.macroexpand(body);
     }
 
     fn handleDefun(self: *Interpreter, list: *Object, objectType: ObjectType) *Object {
@@ -727,6 +733,11 @@ test "eval" {
         .{
             .input = "(defmacro if-zero (x then) (list 'if (list '= x 0) then)) (if-zero 0 42)",
             .expected = "42",
+        },
+        .{ .input = "(defmacro seven () 7) ((lambda () (seven)))", .expected = "7" },
+        .{
+            .input = "(defmacro if-zero (x then) (list 'if (list '= x 0) then)) (macroexpand (if-zero x (print x)))",
+            .expected = "(if (= x 0) (print x))",
         },
     };
     for (testcases) |tc| {
