@@ -259,17 +259,21 @@ const Interpreter = struct {
         return self.makeFunction(isMacro, car, cdr);
     }
 
+    fn allocObject(self: *Self, value: Object) *Object {
+        const o = self.allocator.create(Object) catch @panic("Out of memory");
+        o.* = value;
+        return o;
+    }
+
     fn makeFunction(self: *Self, isMacro: bool, params: *Object, body: *Object) *Object {
-        const object = self.allocator.create(Object) catch @panic("Out of memory");
-        object.* = .{
-            .function = .{
+        return self.allocObject(
+            .{ .function = .{
                 .params = params,
                 .body = body,
                 .env = self.env,
                 .isMacro = isMacro,
-            },
-        };
-        return object;
+            } },
+        );
     }
 
     fn isTruthy(obj: *Object) bool {
@@ -312,9 +316,7 @@ const Interpreter = struct {
     }
 
     fn makeNumber(self: *Self, v: Int) *Object {
-        const obj = self.allocator.create(Object) catch @panic("Out of memory");
-        obj.* = .{ .int = v };
-        return obj;
+        return self.allocObject(.{ .int = v });
     }
 
     fn readSymbol(self: *Self) *Object {
@@ -326,10 +328,8 @@ const Interpreter = struct {
         return self.intern(name);
     }
 
-    fn symbol(self: *Self, name: String) *Object {
-        const obj = self.allocator.create(Object) catch @panic("Out of memory");
-        obj.* = .{ .symbol = name };
-        return obj;
+    fn makeSymbol(self: *Self, name: String) *Object {
+        return self.allocObject(.{ .symbol = name });
     }
 
     fn intern(self: *Self, name: String) *Object {
@@ -342,7 +342,7 @@ const Interpreter = struct {
             }
             p = p.cell.cdr;
         }
-        const s = self.symbol(name);
+        const s = self.makeSymbol(name);
         self.symbols = self.cons(s, self.symbols);
 
         return s;
@@ -353,14 +353,7 @@ const Interpreter = struct {
     }
 
     fn cons(self: *Self, car: *Object, cdr: *Object) *Object {
-        const obj = self.allocator.create(Object) catch @panic("Out of memory");
-        obj.* = .{
-            .cell = Cell{
-                .car = car,
-                .cdr = cdr,
-            },
-        };
-        return obj;
+        return self.allocObject(.{ .cell = .{ .car = car, .cdr = cdr } });
     }
 
     fn readQuote(self: *Self) *Object {
@@ -448,9 +441,7 @@ const Interpreter = struct {
     }
 
     fn makePrimtiive(self: *Self, fun: *const PrimitiveFn) *Object {
-        const obj = self.allocator.create(Object) catch @panic("Out of memory");
-        obj.* = .{ .primitive = fun };
-        return obj;
+        return self.allocObject(.{ .primitive = fun });
     }
 
     fn addPrimitive(self: *Self, name: String, fun: *const PrimitiveFn) void {
