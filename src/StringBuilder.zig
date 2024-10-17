@@ -1,33 +1,29 @@
 const std = @import("std");
+const StringModule = @import("string").String;
+const String = @import("type.zig").String;
 
-pub const String = []const u8;
+const StringBuilder = @This();
 
-// TODO: use https://github.com/JakubSzark/zig-string
-// Unsafe string builder
-pub const StringBuilder = struct {
-    allocator: std.mem.Allocator,
-    buffer: std.ArrayList(u8),
+pub fn init(allocator: std.mem.Allocator) StringBuilder {
+    return .{
+        .string = StringModule.init(allocator),
+    };
+}
 
-    pub fn init(allocator: std.mem.Allocator) StringBuilder {
-        return StringBuilder{
-            .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
-        };
-    }
+string: StringModule,
 
-    pub fn append(self: *StringBuilder, str: String) void {
-        self.buffer.appendSlice(str) catch unreachable;
-    }
+pub fn append(self: *StringBuilder, str: String) void {
+    self.string.concat(str) catch unreachable;
+}
 
-    pub fn pop(self: *StringBuilder) u8 {
-        return self.buffer.pop();
-    }
+pub fn pop(self: *StringBuilder) u8 {
+    return self.string.pop();
+}
 
-    pub fn toString(self: *StringBuilder) String {
-        return self.buffer.toOwnedSlice() catch unreachable;
-    }
+pub fn toString(self: *StringBuilder) String {
+    return self.string.str();
+}
 
-    pub fn deinit(self: *StringBuilder) void {
-        self.buffer.deinit();
-    }
-};
+pub fn deinit(self: *StringBuilder) void {
+    self.string.deinit();
+}

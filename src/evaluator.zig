@@ -1,8 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const SB = @import("StringBuilder.zig");
-const StringBuilder = SB.StringBuilder;
-const String = SB.String;
+const StringBuilder = @import("StringBuilder.zig");
+const String = @import("type.zig").String;
 
 const ObjectType = enum {
     int,

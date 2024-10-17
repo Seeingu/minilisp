@@ -6,4 +6,6 @@ This is a zig implementation of [Rui](https://github.com/rui314)'s [minilisp](ht
 
 ## Build and test
 
+clone dependencies `git submodule update --init`
+
 run `zig build test`

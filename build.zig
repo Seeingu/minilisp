@@ -29,12 +29,22 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    const string = b.dependency("string", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    var imports = std.ArrayList(std.Build.Module.Import).init(b.allocator);
+    imports.append(
+        .{ .name = "string", .module = string.module("string") },
+    ) catch unreachable;
+
     const exe = b.addExecutable(.{
         .name = "minilisp",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+    for (imports.items) |item| exe.root_module.addImport(item.name, item.module);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -79,6 +89,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    for (imports.items) |item| exe_unit_tests.root_module.addImport(item.name, item.module);
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
