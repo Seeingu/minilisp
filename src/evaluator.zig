@@ -121,6 +121,12 @@ var dotObject: *Object = undefined;
 var parenObject: *Object = undefined;
 var trueObject: *Object = undefined;
 
+fn allocObject2(allocator: std.mem.Allocator, value: Object) *Object {
+    const o = allocator.create(Object) catch @panic("Out of memory");
+    o.* = value;
+    return o;
+}
+
 const Interpreter = struct {
     input: String,
     index: u32,
@@ -185,8 +191,6 @@ const Interpreter = struct {
             c = c.cell.cdr;
         }
 
-        // self.debugPrintEnv(self.env);
-        std.debug.print("Plus: {s}, {d}\n", .{ objectToString(args, self.allocator), sum });
         return self.makeNumber(sum);
     }
 
@@ -260,9 +264,7 @@ const Interpreter = struct {
     }
 
     fn allocObject(self: *Self, value: Object) *Object {
-        const o = self.allocator.create(Object) catch @panic("Out of memory");
-        o.* = value;
-        return o;
+        return allocObject2(self.allocator, value);
     }
 
     fn makeFunction(self: *Self, isMacro: bool, params: *Object, body: *Object) *Object {
@@ -637,15 +639,10 @@ const Interpreter = struct {
 
 pub fn run(source: String) !String {
     const allocator = std.heap.page_allocator;
-
-    nilObject = try allocator.create(Object);
-    nilObject.* = .{ .token = "()" };
-    parenObject = try allocator.create(Object);
-    parenObject.* = .{ .token = "paren" };
-    dotObject = try allocator.create(Object);
-    dotObject.* = .{ .token = "." };
-    trueObject = try allocator.create(Object);
-    trueObject.* = .{ .token = "t" };
+    nilObject = allocObject2(allocator, .{ .token = "()" });
+    parenObject = allocObject2(allocator, .{ .token = "paren" });
+    dotObject = allocObject2(allocator, .{ .token = "." });
+    trueObject = allocObject2(allocator, .{ .token = "t" });
 
     var e = try Interpreter.init(source, allocator);
     var result: String = "";
