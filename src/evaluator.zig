@@ -184,6 +184,9 @@ const Interpreter = struct {
             sum += car.int;
             c = c.cell.cdr;
         }
+
+        // self.debugPrintEnv(self.env);
+        std.debug.print("Plus: {s}, {d}\n", .{ objectToString(args, self.allocator), sum });
         return self.makeNumber(sum);
     }
 
@@ -474,6 +477,7 @@ const Interpreter = struct {
             const params = fun.function.params;
             const eargs = self.evalList(args);
             self.pushEnv(fun.function.env, params, eargs);
+            fun.function.env = self.env;
             const result = self.progn(body);
             self.popEnv();
             return result;
@@ -495,13 +499,12 @@ const Interpreter = struct {
             name = name.cell.cdr;
             value = value.cell.cdr;
         }
-        if (env != self.env) {
-            env.outer = self.env;
-        }
         self.env = self.makeEnv(map, env);
     }
     fn popEnv(self: *Self) void {
-        self.env = self.env.outer.?;
+        if (self.env.outer) |outer| {
+            self.env = outer;
+        }
     }
 
     fn makeEnv(self: *Self, vars: *Object, outer: *Env) *Env {
@@ -687,8 +690,7 @@ test "eval" {
         .{ .input = "'(a b c)", .expected = "(a b c)" },
         .{ .input = "(list 'a 'b 'c)", .expected = "(a b c)" },
         .{ .input = "'(a b . c)", .expected = "(a b . c)" },
-        // TODO: Fix this, return nil currently
-        // .{ .input = "; 2\n5 ; 3", .expected = "5" },
+        .{ .input = "; 2\n5", .expected = "5" },
         .{ .input = "(define x 7) x", .expected = "7" },
         .{ .input = "(define x 7) (+ x 3)", .expected = "10" },
         .{ .input = "(define + 7) +", .expected = "7" },
@@ -731,8 +733,7 @@ test "eval" {
             .input = "(defmacro if-zero (x then) (list 'if (list '= x 0) then)) (macroexpand (if-zero x (print x)))",
             .expected = "(if (= x 0) (print x))",
         },
-        // TODO: Fix env issue
-        // .{ .input = "(defun f (x) (if (= x 0) 0 (+ (f (+ x -1)) x))) (f 10)", .expected = "55" },
+        .{ .input = "(defun f (x) (if (= x 0) 0 (+ (f (+ x -1)) x))) (f 10)", .expected = "55" },
     };
     for (testcases) |tc| {
         std.debug.print("Input: {s}, ", .{tc.input});
