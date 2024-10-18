@@ -16,7 +16,10 @@ pub fn main() !void {
         const read_bytes = try stdin.readUntilDelimiterOrEof(&line, '\n');
         if (read_bytes) |bytes| {
             if (std.mem.eql(u8, bytes, "exit")) break;
-            const result = try evaluator.run(bytes);
+            const result = evaluator.run(bytes) catch |err| {
+                try out.print("Error: {}\n", .{err});
+                continue;
+            };
             try out.print("{s}\n", .{result});
             try bw.flush();
         } else {
