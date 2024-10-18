@@ -49,7 +49,7 @@ fn isSpecialSymbol(s: String) bool {
     return std.mem.indexOf(u8, "+-*/=", s) != null;
 }
 
-fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
+fn objectToString(allocator: std.mem.Allocator, o: *Object) String {
     var sb = StringBuilder.init(allocator);
     switch (o.*) {
         .int => {
@@ -62,13 +62,13 @@ fn objectToString(o: *Object, allocator: std.mem.Allocator) String {
             sb.append("(");
             var c = cell;
             while (true) {
-                sb.append(objectToString(c.car, allocator));
+                sb.append(objectToString(allocator, c.car));
                 if (c.cdr == nilObject) {
                     break;
                 }
                 if (c.cdr.* != .cell) {
                     sb.append(" . ");
-                    sb.append(objectToString(c.cdr, allocator));
+                    sb.append(objectToString(allocator, c.cdr));
                     break;
                 }
                 sb.append(" ");
@@ -163,6 +163,11 @@ const Interpreter = struct {
         i.addPrimitive("macroexpand", &funMacroexpand);
 
         return i;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.destroy(self.env);
+        self.allocator.destroy(self.symbols);
     }
 
     fn funQuote(_: *Self, args: *Object) *Object {
@@ -644,11 +649,12 @@ pub fn run(source: String) !String {
     trueObject = allocObject2(allocator, .{ .token = "t" });
 
     var e = try Interpreter.init(source, allocator);
+    defer e.deinit();
     var result: String = "";
     while (!e.isAtEnd()) {
         const parsed = e.parse();
-        std.debug.print("Parsed: {s}\n", .{objectToString(parsed, allocator)});
-        result = objectToString(e.eval(parsed), allocator);
+        std.debug.print("Parsed: {s}\n", .{objectToString(allocator, parsed)});
+        result = objectToString(allocator, e.eval(parsed));
     }
     return result;
 }
