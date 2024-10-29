@@ -27,7 +27,3 @@ pub fn main() !void {
         }
     }
 }
-
-test "all" {
-    _ = evaluator;
-}

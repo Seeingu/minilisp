@@ -2,12 +2,15 @@
 //! you are making an executable, the convention is to delete this file and
 //! start with main.zig instead.
 const std = @import("std");
-const testing = std.testing;
 
-export fn add(a: i32, b: i32) i32 {
-    return a + b;
+const evaluator = @import("evaluator.zig");
+
+export fn run(buf: [*:0]const u8, len: c_int) void {
+    const source = buf[0..@intCast(len)];
+    const result = evaluator.run(source) catch unreachable;
+    std.debug.print("{s}\n", .{result});
 }
 
-test "basic add functionality" {
-    try testing.expect(add(3, 7) == 10);
+test "all" {
+    _ = evaluator;
 }
