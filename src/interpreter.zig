@@ -36,6 +36,7 @@ pub const Interpreter = struct {
         i.addConstant("t", globals.trueObject);
         i.addPrimitive("quote", &funQuote);
         i.addPrimitive("+", &funPlus);
+        i.addPrimitive("-", &funSub);
         i.addPrimitive("=", &funEq);
         i.addPrimitive("list", &funList);
         i.addPrimitive("define", &funDefine);
@@ -74,6 +75,28 @@ pub const Interpreter = struct {
         const value = try self.eval(args.cons.cdr.cons.car);
         bind.cons.cdr = value;
         return value;
+    }
+
+    fn funSub(self: *Self, args: *Object) errors.evalError!*Object {
+        var c = try self.evalList(args);
+        if (c == globals.nilObject) {
+            return errors.evalError.SubNoArgs;
+        }
+
+        var result: i32 = c.cons.car.int;
+        if (c.cons.cdr == globals.nilObject) {
+            return self.makeNumber(-result);
+        }
+        c = c.cons.cdr;
+        while (c != globals.nilObject) {
+            const car = c.cons.car;
+            if (car.* != .int) {
+                return errors.evalError.SubNonInt;
+            }
+            result -= car.int;
+            c = c.cons.cdr;
+        }
+        return self.makeNumber(result);
     }
 
     fn funPlus(self: *Self, args: *Object) errors.evalError!*Object {
@@ -311,16 +334,16 @@ pub const Interpreter = struct {
                 '\'' => return self.readQuote(),
                 '(' => return self.readList(),
                 ')' => return globals.parenObject,
-                '-' => {
-                    const cc = self.getchar();
-                    if (utils.isdigit(cc)) {
-                        return self.readNumber(-utils.charToInt(cc));
-                    } else {
-                        return errors.parseError.Syntax;
-                    }
-                },
                 '.' => return globals.dotObject,
                 else => {
+                    if (c == '+' and !self.isAtEnd() and utils.isdigit(self.peek())) {
+                        const cc = self.getchar();
+                        return self.readNumber(utils.charToInt(cc));
+                    }
+                    if (c == '-' and !self.isAtEnd() and utils.isdigit(self.peek())) {
+                        const cc = self.getchar();
+                        return self.readNumber(-utils.charToInt(cc));
+                    }
                     if (utils.isSpecialSymbol(self.charToString(c))) {
                         return self.readSymbol();
                     }

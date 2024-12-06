@@ -4,4 +4,6 @@ pub const parseError = error{
 pub const evalError = error{
     SymbolNotFound,
     PlusNonInt,
+    SubNoArgs,
+    SubNonInt,
 };
