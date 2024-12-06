@@ -4,7 +4,9 @@
 const std = @import("std");
 
 const evaluator = @import("evaluator.zig");
+const utils = @import("utils.zig");
 
+// cross language call
 export fn run(buf: [*:0]const u8, len: c_int) void {
     const source = buf[0..@intCast(len)];
     const result = evaluator.run(source) catch unreachable;
@@ -12,5 +14,6 @@ export fn run(buf: [*:0]const u8, len: c_int) void {
 }
 
 test "all" {
+    _ = utils;
     _ = evaluator;
 }

@@ -2,7 +2,7 @@ const std = @import("std");
 const StringModule = @import("string").String;
 const String = @import("type.zig").String;
 
-const StringBuilder = @This();
+pub const StringBuilder = @This();
 
 pub fn init(allocator: std.mem.Allocator) StringBuilder {
     return .{
